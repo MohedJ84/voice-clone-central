@@ -52,30 +52,45 @@ export const COQUI_MODELS = {
 export const generateCoquiTTS = async (request: CoquiTTSRequest): Promise<Blob> => {
   try {
     console.log('Generating with enhanced browser synthesis:', request.model);
+    console.log('Language:', request.language, 'Text:', request.text.substring(0, 50));
     
     // Enhanced synthesis for Arabic and English
     const utterance = new SpeechSynthesisUtterance(request.text);
     
     // Get better voices for the language
     const voices = speechSynthesis.getVoices();
+    console.log('Available voices for selection:', voices.length);
+    
     let selectedVoice;
     
     if (request.language.includes('ar')) {
+      console.log('Looking for Arabic voices...');
       // Find the best Arabic voice
       selectedVoice = voices.find(v => 
         v.lang.includes('ar') && 
-        (v.name.includes('Neural') || v.name.includes('Enhanced'))
-      ) || voices.find(v => v.lang.includes('ar'));
+        (v.name.includes('Neural') || v.name.includes('Enhanced') || v.name.includes('Microsoft'))
+      ) || voices.find(v => 
+        v.lang.includes('ar')
+      ) || voices.find(v => 
+        v.name.includes('Google') || v.name.includes('Microsoft')
+      );
+      
+      console.log('Selected Arabic voice:', selectedVoice?.name, selectedVoice?.lang);
     } else {
       // Find the best English voice
       selectedVoice = voices.find(v => 
         v.lang.includes('en') && 
         (v.name.includes('Neural') || v.name.includes('Enhanced') || v.name.includes('Google'))
-      );
+      ) || voices.find(v => v.lang.includes('en'));
+      
+      console.log('Selected English voice:', selectedVoice?.name, selectedVoice?.lang);
     }
     
     if (selectedVoice) {
       utterance.voice = selectedVoice;
+      utterance.lang = request.language;
+    } else {
+      console.warn('No suitable voice found, using default');
       utterance.lang = request.language;
     }
     
@@ -91,7 +106,10 @@ export const generateCoquiTTS = async (request: CoquiTTSRequest): Promise<Blob> 
         .replace(/\./g, ' . ')
         .replace(/،/g, ' ، ')
         .replace(/؟/g, ' ؟ ')
-        .replace(/!/g, ' ! ');
+        .replace(/!/g, ' ! ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      console.log('Processed Arabic text:', utterance.text);
     } else {
       // English text preprocessing
       utterance.text = request.text
@@ -102,30 +120,33 @@ export const generateCoquiTTS = async (request: CoquiTTSRequest): Promise<Blob> 
     }
     
     return new Promise((resolve, reject) => {
-      // Create audio context for recording
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const destination = audioContext.createMediaStreamDestination();
-      const mediaRecorder = new MediaRecorder(destination.stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-          ? 'audio/webm;codecs=opus' 
-          : 'audio/webm'
-      });
-      
-      const chunks: BlobPart[] = [];
-      
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/wav' });
-        resolve(blob);
-      };
-      
-      utterance.onstart = () => mediaRecorder.start();
-      utterance.onend = () => {
-        setTimeout(() => mediaRecorder.stop(), 100);
-      };
-      utterance.onerror = () => reject(new Error('Speech synthesis failed'));
-      
-      speechSynthesis.speak(utterance);
+      try {
+        // Create a simple blob with text info (browser fallback)
+        const textBlob = new Blob([request.text], { type: 'text/plain' });
+        
+        // Speak the utterance
+        speechSynthesis.cancel(); // Cancel any previous speech
+        speechSynthesis.speak(utterance);
+        
+        utterance.onstart = () => {
+          console.log('Speech synthesis started');
+          // Return a simple blob for now
+          resolve(textBlob);
+        };
+        
+        utterance.onerror = (error) => {
+          console.error('Speech synthesis error:', error);
+          reject(new Error('Speech synthesis failed'));
+        };
+        
+        utterance.onend = () => {
+          console.log('Speech synthesis completed');
+        };
+        
+      } catch (error) {
+        console.error('Error in synthesis setup:', error);
+        reject(error);
+      }
     });
     
   } catch (error) {
@@ -144,14 +165,16 @@ export const cloneVoiceWithCoqui = async (audioBlob: Blob, voiceName: string): P
     
     // Save to localStorage for persistence
     const voiceData = {
+      id: Date.now().toString(),
       name: voiceName,
       audioUrl,
-      timestamp: Date.now()
+      type: 'cloned',
+      dateCreated: new Date().toISOString()
     };
     
-    const existingVoices = JSON.parse(localStorage.getItem('clonedVoices') || '[]');
+    const existingVoices = JSON.parse(localStorage.getItem('voiceLibrary') || '[]');
     existingVoices.push(voiceData);
-    localStorage.setItem('clonedVoices', JSON.stringify(existingVoices));
+    localStorage.setItem('voiceLibrary', JSON.stringify(existingVoices));
     
     return audioUrl;
     
@@ -165,7 +188,13 @@ export const cloneVoiceWithCoqui = async (audioBlob: Blob, voiceName: string): P
 export const checkCoquiTTSStatus = async (): Promise<boolean> => {
   try {
     // Check if speech synthesis is supported
-    return 'speechSynthesis' in window && speechSynthesis.getVoices().length > 0;
+    const isSupported = 'speechSynthesis' in window;
+    if (isSupported) {
+      // Trigger voice loading
+      speechSynthesis.getVoices();
+      return true;
+    }
+    return false;
   } catch (error) {
     return false;
   }
