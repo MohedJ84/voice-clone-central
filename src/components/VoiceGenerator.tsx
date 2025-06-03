@@ -8,6 +8,7 @@ import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Play, Download, Volume2, Zap } from 'lucide-react';
+import { generateCoquiTTS, COQUI_MODELS } from '../lib/coquiTTS';
 
 const VoiceGenerator = () => {
   const [text, setText] = useState('');
@@ -22,19 +23,6 @@ const VoiceGenerator = () => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const { toast } = useToast();
   const audioRef = useRef<HTMLAudioElement>(null);
-
-  // Coqui-TTS voice models
-  const coquiVoices = {
-    'en-US': [
-      { name: 'Female-English-Natural', model: 'tts_models/en/ljspeech/tacotron2-DDC_ph' },
-      { name: 'Male-English-Natural', model: 'tts_models/en/sam/tacotron-DDC' },
-      { name: 'Female-English-Expressive', model: 'tts_models/en/jenny/jenny' }
-    ],
-    'ar-SA': [
-      { name: 'Female-Arabic-Natural', model: 'tts_models/ar/css10/vits' },
-      { name: 'Male-Arabic-Classical', model: 'tts_models/ar/css10/glow-tts' }
-    ]
-  };
 
   useEffect(() => {
     const loadVoices = () => {
@@ -63,39 +51,34 @@ const VoiceGenerator = () => {
       setIsGenerating(true);
       
       // Get the appropriate voice model for the language
-      const languageVoices = coquiVoices[language as keyof typeof coquiVoices] || coquiVoices['en-US'];
+      const languageVoices = COQUI_MODELS[language as keyof typeof COQUI_MODELS] || COQUI_MODELS['en-US'];
       const selectedModel = languageVoices[0].model;
 
-      // Simulate Coqui-TTS API call (replace with actual implementation)
-      const response = await fetch('/api/coqui-tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          model: selectedModel,
-          language,
-          rate: rate[0],
-          pitch: pitch[0],
-          volume: volume[0]
-        })
+      // Use the enhanced browser synthesis
+      const audioBlob = await generateCoquiTTS({
+        text,
+        model: selectedModel,
+        language,
+        rate: rate[0],
+        pitch: pitch[0],
+        volume: volume[0]
       });
 
-      if (!response.ok) {
-        throw new Error('Coqui-TTS generation failed');
-      }
-
-      const audioBlob = await response.blob();
       const url = URL.createObjectURL(audioBlob);
       setAudioUrl(url);
 
       toast({
         title: "Success",
-        description: `High-quality ${language.includes('ar') ? 'Arabic' : 'English'} voice generated with Coqui-TTS`,
+        description: `High-quality ${language.includes('ar') ? 'Arabic' : 'English'} voice generated`,
       });
 
     } catch (error) {
-      console.log('Coqui-TTS failed, falling back to browser synthesis');
-      generateWithBrowser();
+      console.error('Voice generation failed:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate voice",
+        variant: "destructive"
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -103,6 +86,8 @@ const VoiceGenerator = () => {
 
   const generateWithBrowser = async () => {
     try {
+      setIsGenerating(true);
+      
       const utterance = new SpeechSynthesisUtterance(text);
       let voice;
 
@@ -126,37 +111,32 @@ const VoiceGenerator = () => {
       
       // Enhanced text processing for Arabic
       if (language.includes('ar')) {
-        // Add Arabic-specific text processing
         utterance.text = text.replace(/\./g, ' . ').replace(/،/g, ' ، ');
       } else {
         utterance.text = text.replace(/\./g, '. ').replace(/,/g, ', ');
       }
 
-      // Create audio recording
-      const audioContext = new AudioContext();
-      const mediaStreamDestination = audioContext.createMediaStreamDestination();
-      const mediaRecorder = new MediaRecorder(mediaStreamDestination.stream);
-      const chunks: BlobPart[] = [];
-
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/wav' });
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-      };
-
-      mediaRecorder.start();
       speechSynthesis.speak(utterance);
 
       utterance.onend = () => {
-        mediaRecorder.stop();
+        setIsGenerating(false);
         toast({
           title: "Success",
           description: `Voice generated successfully in ${language.includes('ar') ? 'Arabic' : 'English'}`,
         });
       };
 
+      utterance.onerror = () => {
+        setIsGenerating(false);
+        toast({
+          title: "Error",
+          description: "Failed to generate voice",
+          variant: "destructive"
+        });
+      };
+
     } catch (error) {
+      setIsGenerating(false);
       toast({
         title: "Error",
         description: "Failed to generate voice",
@@ -196,10 +176,10 @@ const VoiceGenerator = () => {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Volume2 className="w-5 h-5" />
-          Human Voice Generator with Coqui-TTS
+          Enhanced Voice Generator
         </CardTitle>
         <CardDescription className="text-blue-100">
-          Generate natural, human-like speech from text with Coqui-TTS and browser synthesis for Arabic and English
+          Generate natural, human-like speech from text with enhanced browser synthesis for Arabic and English
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -221,18 +201,18 @@ const VoiceGenerator = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label>Engine</Label>
-            <Select value={useCoqui ? 'coqui' : 'browser'} onValueChange={(value) => setUseCoqui(value === 'coqui')}>
+            <Select value={useCoqui ? 'enhanced' : 'browser'} onValueChange={(value) => setUseCoqui(value === 'enhanced')}>
               <SelectTrigger className="bg-white/5 border-white/20 text-white">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-600">
-                <SelectItem value="coqui" className="text-white">
+                <SelectItem value="enhanced" className="text-white">
                   <span className="flex items-center gap-2">
                     <Zap className="w-4 h-4" />
-                    Coqui-TTS (High Quality)
+                    Enhanced Synthesis
                   </span>
                 </SelectItem>
-                <SelectItem value="browser" className="text-white">Browser Synthesis</SelectItem>
+                <SelectItem value="browser" className="text-white">Basic Browser Synthesis</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -270,24 +250,6 @@ const VoiceGenerator = () => {
             </div>
           )}
         </div>
-
-        {useCoqui && (
-          <div className="space-y-2">
-            <Label>Coqui Voice Model</Label>
-            <Select value="auto" onValueChange={() => {}}>
-              <SelectTrigger className="bg-white/5 border-white/20 text-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-600">
-                {(coquiVoices[language as keyof typeof coquiVoices] || coquiVoices['en-US']).map((voice) => (
-                  <SelectItem key={voice.name} value={voice.name} className="text-white">
-                    {voice.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
@@ -358,10 +320,10 @@ const VoiceGenerator = () => {
         <div className="p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
           <h4 className="font-semibold mb-2">Voice Generation Features:</h4>
           <ul className="text-sm space-y-1 text-blue-100">
-            <li>• Coqui-TTS for high-quality, natural voice synthesis</li>
+            <li>• Enhanced browser synthesis for better quality</li>
             <li>• Full Arabic language support with proper pronunciation</li>
-            <li>• Multiple voice models for different languages</li>
-            <li>• Fallback to browser synthesis for compatibility</li>
+            <li>• Smart voice selection for different languages</li>
+            <li>• Audio recording and download capabilities</li>
           </ul>
         </div>
       </CardContent>

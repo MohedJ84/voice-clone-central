@@ -48,12 +48,10 @@ export const COQUI_MODELS = {
   ]
 };
 
-// Mock API call to Coqui-TTS server (replace with actual implementation)
+// Enhanced browser synthesis with improved Arabic support
 export const generateCoquiTTS = async (request: CoquiTTSRequest): Promise<Blob> => {
   try {
-    // In a real implementation, this would call your Coqui-TTS server
-    // For now, we'll simulate with enhanced browser synthesis
-    console.log('Generating with Coqui-TTS model:', request.model);
+    console.log('Generating with enhanced browser synthesis:', request.model);
     
     // Enhanced synthesis for Arabic and English
     const utterance = new SpeechSynthesisUtterance(request.text);
@@ -86,9 +84,9 @@ export const generateCoquiTTS = async (request: CoquiTTSRequest): Promise<Blob> 
     utterance.pitch = request.pitch;
     utterance.volume = request.volume;
     
-    // Enhanced text preprocessing
+    // Enhanced text preprocessing for Arabic
     if (request.language.includes('ar')) {
-      // Arabic text preprocessing
+      // Arabic text preprocessing - add pauses for better pronunciation
       utterance.text = request.text
         .replace(/\./g, ' . ')
         .replace(/،/g, ' ، ')
@@ -104,12 +102,13 @@ export const generateCoquiTTS = async (request: CoquiTTSRequest): Promise<Blob> 
     }
     
     return new Promise((resolve, reject) => {
-      // Create audio context for high-quality recording
-      const audioContext = new AudioContext({ sampleRate: 44100 });
+      // Create audio context for recording
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const destination = audioContext.createMediaStreamDestination();
       const mediaRecorder = new MediaRecorder(destination.stream, {
-        mimeType: 'audio/webm;codecs=opus',
-        audioBitsPerSecond: 128000
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+          ? 'audio/webm;codecs=opus' 
+          : 'audio/webm'
       });
       
       const chunks: BlobPart[] = [];
@@ -130,20 +129,31 @@ export const generateCoquiTTS = async (request: CoquiTTSRequest): Promise<Blob> 
     });
     
   } catch (error) {
-    console.error('Coqui-TTS generation failed:', error);
+    console.error('Enhanced synthesis failed:', error);
     throw error;
   }
 };
 
-// Voice cloning with Coqui-TTS
+// Voice cloning simulation (browser-based)
 export const cloneVoiceWithCoqui = async (audioBlob: Blob, voiceName: string): Promise<string> => {
   try {
-    // In a real implementation, this would upload the audio to your Coqui-TTS server
-    // and train a voice model
-    console.log('Cloning voice with Coqui-TTS:', voiceName);
+    console.log('Processing voice clone:', voiceName);
     
-    // For now, return the audio URL for storage
-    return URL.createObjectURL(audioBlob);
+    // Store the audio for later use (in real implementation, this would train a model)
+    const audioUrl = URL.createObjectURL(audioBlob);
+    
+    // Save to localStorage for persistence
+    const voiceData = {
+      name: voiceName,
+      audioUrl,
+      timestamp: Date.now()
+    };
+    
+    const existingVoices = JSON.parse(localStorage.getItem('clonedVoices') || '[]');
+    existingVoices.push(voiceData);
+    localStorage.setItem('clonedVoices', JSON.stringify(existingVoices));
+    
+    return audioUrl;
     
   } catch (error) {
     console.error('Voice cloning failed:', error);
@@ -151,11 +161,11 @@ export const cloneVoiceWithCoqui = async (audioBlob: Blob, voiceName: string): P
   }
 };
 
-// Check if Coqui-TTS server is available
+// Check if enhanced synthesis is available
 export const checkCoquiTTSStatus = async (): Promise<boolean> => {
   try {
-    // In a real implementation, ping your Coqui-TTS server
-    return true; // Mock response
+    // Check if speech synthesis is supported
+    return 'speechSynthesis' in window && speechSynthesis.getVoices().length > 0;
   } catch (error) {
     return false;
   }
