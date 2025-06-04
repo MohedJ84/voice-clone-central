@@ -30,14 +30,24 @@ const VoiceGenerator = () => {
       console.log('Loading voices, found:', availableVoices.length);
       console.log('Voice details:', availableVoices.map(v => ({ name: v.name, lang: v.lang })));
       
-      // Filter for better quality voices
-      const humanVoices = availableVoices.filter(voice => 
-        (voice.lang.includes('en') || voice.lang.includes('ar')) &&
-        !voice.name.toLowerCase().includes('espeak') &&
-        voice.name.trim() !== ''
-      );
+      // Filter for better quality voices - include ALL Arabic voices
+      const humanVoices = availableVoices.filter(voice => {
+        const isArabic = voice.lang.includes('ar') || voice.name.toLowerCase().includes('arabic');
+        const isEnglish = voice.lang.includes('en');
+        const isGoodQuality = !voice.name.toLowerCase().includes('espeak') && voice.name.trim() !== '';
+        
+        return (isArabic || isEnglish) && isGoodQuality;
+      });
+      
+      // If no Arabic voices found, add any available voices for Arabic fallback
+      if (!humanVoices.some(v => v.lang.includes('ar'))) {
+        console.log('No Arabic voices found, adding all voices as fallback');
+        const allVoices = availableVoices.filter(voice => voice.name.trim() !== '');
+        humanVoices.push(...allVoices);
+      }
       
       console.log('Filtered voices:', humanVoices.length);
+      console.log('Arabic voices found:', humanVoices.filter(v => v.lang.includes('ar')).length);
       setVoices(humanVoices);
       
       // Load cloned voices from localStorage
@@ -50,16 +60,25 @@ const VoiceGenerator = () => {
       }
       
       if (humanVoices.length > 0 && !selectedVoice) {
-        setSelectedVoice(humanVoices[0].name);
-        console.log('Auto-selected voice:', humanVoices[0].name);
+        // Prefer Arabic voice if language is Arabic
+        let defaultVoice;
+        if (language.includes('ar')) {
+          defaultVoice = humanVoices.find(v => v.lang.includes('ar')) || humanVoices[0];
+        } else {
+          defaultVoice = humanVoices.find(v => v.lang.includes('en')) || humanVoices[0];
+        }
+        setSelectedVoice(defaultVoice.name);
+        console.log('Auto-selected voice:', defaultVoice.name);
       }
     };
 
     loadVoices();
     speechSynthesis.addEventListener('voiceschanged', loadVoices);
     
-    // Force load voices after short delay
+    // Force load voices multiple times with delays for Arabic support
     setTimeout(loadVoices, 100);
+    setTimeout(loadVoices, 500);
+    setTimeout(loadVoices, 1000);
     
     // Listen for voice library updates
     const handleVoiceUpdate = () => {
@@ -73,7 +92,7 @@ const VoiceGenerator = () => {
       speechSynthesis.removeEventListener('voiceschanged', loadVoices);
       window.removeEventListener('voiceLibraryUpdated', handleVoiceUpdate);
     };
-  }, [selectedVoice]);
+  }, [selectedVoice, language]);
 
   const generateWithClonedVoice = async (clonedVoice: any) => {
     try {
@@ -172,46 +191,52 @@ const VoiceGenerator = () => {
       setIsGenerating(true);
       setHasGenerated(false);
       console.log('Generating with system voice:', selectedVoice);
+      console.log('Target language:', language);
       
       const utterance = new SpeechSynthesisUtterance(text);
       
       // Find the EXACT voice the user selected
-      const exactVoice = voices.find(v => v.name === selectedVoice);
-      if (exactVoice) {
-        utterance.voice = exactVoice;
-        console.log('Using exact selected voice:', exactVoice.name, exactVoice.lang);
-      } else {
-        console.warn('Selected voice not found:', selectedVoice);
-        // Fallback logic
-        if (language.includes('ar')) {
-          const arabicVoice = voices.find(v => v.lang.includes('ar'));
-          if (arabicVoice) {
-            utterance.voice = arabicVoice;
-            console.log('Using Arabic fallback:', arabicVoice.name);
-          }
-        } else {
-          const englishVoice = voices.find(v => v.lang.includes('en'));
-          if (englishVoice) {
-            utterance.voice = englishVoice;
-            console.log('Using English fallback:', englishVoice.name);
-          }
+      let exactVoice = voices.find(v => v.name === selectedVoice);
+      
+      if (!exactVoice && language.includes('ar')) {
+        // Special handling for Arabic - try to find any Arabic voice
+        exactVoice = voices.find(v => v.lang.includes('ar'));
+        if (!exactVoice) {
+          // If still no Arabic voice, try any voice that might work with Arabic
+          exactVoice = voices.find(v => 
+            v.name.toLowerCase().includes('google') || 
+            v.name.toLowerCase().includes('microsoft')
+          );
         }
+        console.log('Arabic voice fallback selected:', exactVoice?.name);
       }
       
+      if (exactVoice) {
+        utterance.voice = exactVoice;
+        console.log('Using voice:', exactVoice.name, 'for language:', exactVoice.lang);
+      } else {
+        console.warn('No suitable voice found for:', language);
+        // Force the language even without a specific voice
+        utterance.lang = language;
+      }
+      
+      // Set language explicitly
       utterance.lang = language;
       utterance.rate = rate[0];
       utterance.pitch = pitch[0];
       utterance.volume = volume[0];
 
-      // Enhanced text preprocessing
+      // Enhanced text preprocessing for Arabic
       if (language.includes('ar')) {
+        // Arabic text preprocessing with better spacing
         utterance.text = text
-          .replace(/\./g, ' . ')
-          .replace(/،/g, ' ، ')
-          .replace(/؟/g, ' ؟ ')
-          .replace(/!/g, ' ! ')
-          .replace(/\s+/g, ' ')
+          .replace(/\./g, ' ، ')  // Replace periods with Arabic comma
+          .replace(/،/g, ' ، ')   // Add spaces around Arabic commas
+          .replace(/؟/g, ' ؟ ')   // Add spaces around Arabic question marks
+          .replace(/!/g, ' ! ')   // Add spaces around exclamation marks
+          .replace(/\s+/g, ' ')   // Normalize whitespace
           .trim();
+        console.log('Processed Arabic text:', utterance.text);
       } else {
         utterance.text = text
           .replace(/\./g, '. ')
@@ -220,19 +245,25 @@ const VoiceGenerator = () => {
           .replace(/\?/g, '? ');
       }
 
+      // Cancel any previous speech and start new one
       speechSynthesis.cancel();
-      speechSynthesis.speak(utterance);
-      setCurrentUtterance(utterance);
-      setIsPlaying(true);
+      
+      // Small delay to ensure cancellation is complete
+      setTimeout(() => {
+        speechSynthesis.speak(utterance);
+        setCurrentUtterance(utterance);
+        setIsPlaying(true);
+        console.log('Started speaking with voice:', exactVoice?.name || 'default');
+      }, 100);
 
       utterance.onstart = () => {
-        console.log('System voice synthesis started');
+        console.log('Arabic/English voice synthesis started');
         setIsGenerating(false);
         setHasGenerated(true);
       };
 
       utterance.onend = () => {
-        console.log('System voice synthesis ended');
+        console.log('Arabic/English voice synthesis ended');
         setIsPlaying(false);
         toast({
           title: "Success",
@@ -241,13 +272,15 @@ const VoiceGenerator = () => {
       };
 
       utterance.onerror = (error) => {
-        console.error('System voice synthesis error:', error);
+        console.error('Arabic/English voice synthesis error:', error);
         setIsGenerating(false);
         setIsPlaying(false);
         setHasGenerated(false);
         toast({
           title: "Error",
-          description: "Failed to generate speech",
+          description: language.includes('ar') ? 
+            "Arabic voice generation failed. Your browser may not support Arabic TTS." :
+            "Failed to generate speech",
           variant: "destructive"
         });
       };
