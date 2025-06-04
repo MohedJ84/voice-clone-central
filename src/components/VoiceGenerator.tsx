@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Download, Volume2, Zap } from 'lucide-react';
+import { Play, Download, Volume2, Square, RotateCcw } from 'lucide-react';
 
 const VoiceGenerator = () => {
   const [text, setText] = useState('');
@@ -17,61 +17,83 @@ const VoiceGenerator = () => {
   const [pitch, setPitch] = useState([1]);
   const [volume, setVolume] = useState([1]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [clonedVoices, setClonedVoices] = useState<Array<{id: string, name: string, audioUrl: string}>>([]);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [currentUtterance, setCurrentUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+  const [hasGenerated, setHasGenerated] = useState(false);
   const { toast } = useToast();
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     const loadVoices = () => {
       const availableVoices = speechSynthesis.getVoices();
-      console.log('Available voices:', availableVoices);
+      console.log('Loading voices, found:', availableVoices.length);
+      console.log('Voice details:', availableVoices.map(v => ({ name: v.name, lang: v.lang })));
       
       // Filter for better quality voices
       const humanVoices = availableVoices.filter(voice => 
         (voice.lang.includes('en') || voice.lang.includes('ar')) &&
-        !voice.name.toLowerCase().includes('espeak')
+        !voice.name.toLowerCase().includes('espeak') &&
+        voice.name.trim() !== ''
       );
       
+      console.log('Filtered voices:', humanVoices.length);
       setVoices(humanVoices);
       
       // Load cloned voices from localStorage
       const storedVoices = localStorage.getItem('voiceLibrary');
       if (storedVoices) {
         const parsed = JSON.parse(storedVoices);
-        setClonedVoices(parsed.filter((v: any) => v.type === 'cloned'));
+        const cloned = parsed.filter((v: any) => v.type === 'cloned');
+        console.log('Loaded cloned voices:', cloned.length);
+        setClonedVoices(cloned);
       }
       
       if (humanVoices.length > 0 && !selectedVoice) {
         setSelectedVoice(humanVoices[0].name);
+        console.log('Auto-selected voice:', humanVoices[0].name);
       }
     };
 
     loadVoices();
     speechSynthesis.addEventListener('voiceschanged', loadVoices);
     
-    // Also load voices when component mounts
+    // Force load voices after short delay
     setTimeout(loadVoices, 100);
     
-    return () => speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+    // Listen for voice library updates
+    const handleVoiceUpdate = () => {
+      console.log('Voice library updated, reloading...');
+      loadVoices();
+    };
+    
+    window.addEventListener('voiceLibraryUpdated', handleVoiceUpdate);
+    
+    return () => {
+      speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+      window.removeEventListener('voiceLibraryUpdated', handleVoiceUpdate);
+    };
   }, [selectedVoice]);
 
   const generateWithClonedVoice = async (clonedVoice: any) => {
     try {
       setIsGenerating(true);
-      console.log('Using cloned voice:', clonedVoice.name);
+      setHasGenerated(false);
+      console.log('Generating with cloned voice:', clonedVoice.name);
       
-      // For cloned voices, we'll use a modified browser synthesis approach
       const utterance = new SpeechSynthesisUtterance(text);
       
-      // Find the best system voice to use as base
+      // Use a high-quality base voice for cloned synthesis
       let baseVoice;
       if (language.includes('ar')) {
-        baseVoice = voices.find(v => v.lang.includes('ar')) || voices.find(v => v.name.includes('Google')) || voices[0];
+        baseVoice = voices.find(v => v.lang.includes('ar') && (v.name.includes('Google') || v.name.includes('Microsoft'))) || 
+                   voices.find(v => v.lang.includes('ar')) || 
+                   voices[0];
       } else {
-        baseVoice = voices.find(v => v.lang.includes('en') && v.name.includes('Google')) || voices.find(v => v.lang.includes('en')) || voices[0];
+        baseVoice = voices.find(v => v.lang.includes('en') && (v.name.includes('Google') || v.name.includes('Microsoft'))) || 
+                   voices.find(v => v.lang.includes('en')) || 
+                   voices[0];
       }
       
       if (baseVoice) {
@@ -80,7 +102,7 @@ const VoiceGenerator = () => {
       }
       
       utterance.lang = language;
-      utterance.rate = rate[0] * 0.8;
+      utterance.rate = rate[0] * 0.8; // Slightly slower for cloned voices
       utterance.pitch = pitch[0] * 0.9;
       utterance.volume = volume[0];
 
@@ -104,14 +126,17 @@ const VoiceGenerator = () => {
       speechSynthesis.cancel();
       speechSynthesis.speak(utterance);
       setCurrentUtterance(utterance);
+      setIsPlaying(true);
 
       utterance.onstart = () => {
         console.log('Cloned voice synthesis started');
+        setIsGenerating(false);
+        setHasGenerated(true);
       };
 
       utterance.onend = () => {
-        setIsGenerating(false);
-        setCurrentUtterance(null);
+        console.log('Cloned voice synthesis ended');
+        setIsPlaying(false);
         toast({
           title: "Success",
           description: `Generated speech using cloned voice "${clonedVoice.name}"`,
@@ -121,7 +146,8 @@ const VoiceGenerator = () => {
       utterance.onerror = (error) => {
         console.error('Cloned voice synthesis error:', error);
         setIsGenerating(false);
-        setCurrentUtterance(null);
+        setIsPlaying(false);
+        setHasGenerated(false);
         toast({
           title: "Error",
           description: "Failed to generate with cloned voice",
@@ -132,7 +158,8 @@ const VoiceGenerator = () => {
     } catch (error) {
       console.error('Cloned voice generation failed:', error);
       setIsGenerating(false);
-      setCurrentUtterance(null);
+      setIsPlaying(false);
+      setHasGenerated(false);
       toast({
         title: "Error",
         description: "Failed to generate with cloned voice",
@@ -144,7 +171,8 @@ const VoiceGenerator = () => {
   const generateWithSystemVoice = async () => {
     try {
       setIsGenerating(true);
-      console.log('Using system voice:', selectedVoice);
+      setHasGenerated(false);
+      console.log('Generating with system voice:', selectedVoice);
       
       const utterance = new SpeechSynthesisUtterance(text);
       
@@ -154,7 +182,8 @@ const VoiceGenerator = () => {
         utterance.voice = exactVoice;
         console.log('Using exact selected voice:', exactVoice.name, exactVoice.lang);
       } else {
-        console.warn('Selected voice not found, using fallback');
+        console.warn('Selected voice not found:', selectedVoice);
+        // Fallback logic
         if (language.includes('ar')) {
           const arabicVoice = voices.find(v => v.lang.includes('ar'));
           if (arabicVoice) {
@@ -195,14 +224,17 @@ const VoiceGenerator = () => {
       speechSynthesis.cancel();
       speechSynthesis.speak(utterance);
       setCurrentUtterance(utterance);
+      setIsPlaying(true);
 
       utterance.onstart = () => {
         console.log('System voice synthesis started');
+        setIsGenerating(false);
+        setHasGenerated(true);
       };
 
       utterance.onend = () => {
-        setIsGenerating(false);
-        setCurrentUtterance(null);
+        console.log('System voice synthesis ended');
+        setIsPlaying(false);
         toast({
           title: "Success",
           description: `Generated speech using ${exactVoice ? exactVoice.name : 'system voice'}`,
@@ -212,7 +244,8 @@ const VoiceGenerator = () => {
       utterance.onerror = (error) => {
         console.error('System voice synthesis error:', error);
         setIsGenerating(false);
-        setCurrentUtterance(null);
+        setIsPlaying(false);
+        setHasGenerated(false);
         toast({
           title: "Error",
           description: "Failed to generate speech",
@@ -223,7 +256,8 @@ const VoiceGenerator = () => {
     } catch (error) {
       console.error('System voice generation failed:', error);
       setIsGenerating(false);
-      setCurrentUtterance(null);
+      setIsPlaying(false);
+      setHasGenerated(false);
       toast({
         title: "Error",
         description: "Failed to generate speech",
@@ -242,13 +276,15 @@ const VoiceGenerator = () => {
       return;
     }
 
-    console.log('Generating voice with settings:', { language, selectedVoice });
+    console.log('Generating voice with settings:', { language, selectedVoice, voiceCount: voices.length });
 
     // Check if selected voice is a cloned voice
     const clonedVoice = clonedVoices.find(v => v.name === selectedVoice);
     if (clonedVoice) {
+      console.log('Using cloned voice:', clonedVoice.name);
       await generateWithClonedVoice(clonedVoice);
     } else {
+      console.log('Using system voice:', selectedVoice);
       await generateWithSystemVoice();
     }
   };
@@ -256,19 +292,33 @@ const VoiceGenerator = () => {
   const stopVoice = () => {
     speechSynthesis.cancel();
     setIsGenerating(false);
+    setIsPlaying(false);
     setCurrentUtterance(null);
   };
 
-  const downloadVoice = () => {
+  const playAgain = () => {
     if (currentUtterance) {
-      // For browser-based synthesis, we can't directly download
-      // This would require a server-side implementation
-      toast({
-        title: "Download not available",
-        description: "Browser synthesis doesn't support direct download. Use the cloned voices for downloadable audio.",
-        variant: "destructive"
-      });
+      speechSynthesis.cancel();
+      speechSynthesis.speak(currentUtterance);
+      setIsPlaying(true);
+      
+      currentUtterance.onend = () => {
+        setIsPlaying(false);
+      };
+    } else {
+      // Regenerate if no current utterance
+      generateVoice();
     }
+  };
+
+  const downloadVoice = () => {
+    // For browser-based synthesis, we can't directly download audio
+    // This would require a server-side implementation or Web Audio API
+    toast({
+      title: "Download Feature",
+      description: "Audio download is not available with browser synthesis. Consider using a server-based TTS solution for downloadable audio files.",
+      variant: "destructive"
+    });
   };
 
   // Combine system voices and cloned voices for selection
@@ -276,6 +326,8 @@ const VoiceGenerator = () => {
     ...clonedVoices.map(v => ({ name: v.name, type: 'cloned', lang: 'Custom' })),
     ...voices.map(v => ({ name: v.name, type: 'system', lang: v.lang }))
   ];
+
+  console.log('Rendering with voices:', allVoices.length, 'hasGenerated:', hasGenerated, 'isPlaying:', isPlaying);
 
   return (
     <Card className="bg-white/10 backdrop-blur-sm border-white/20 text-white">
@@ -328,7 +380,7 @@ const VoiceGenerator = () => {
               <SelectTrigger className="bg-white/5 border-white/20 text-white">
                 <SelectValue placeholder="Select voice" />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-600">
+              <SelectContent className="bg-slate-800 border-slate-600 max-h-48 overflow-y-auto">
                 {clonedVoices.length > 0 && (
                   <>
                     {clonedVoices.map((voice) => (
@@ -398,33 +450,82 @@ const VoiceGenerator = () => {
             {isGenerating ? 'Generating...' : `Generate ${language.includes('ar') ? 'Arabic' : 'English'} Voice`}
           </Button>
           
-          {isGenerating && (
+          {(isGenerating || isPlaying) && (
             <Button 
               onClick={stopVoice}
               className="bg-red-600 hover:bg-red-700 text-white border-0"
             >
+              <Square className="w-4 h-4 mr-2" />
               Stop
             </Button>
           )}
         </div>
 
-        {/* Audio Controls */}
-        {currentUtterance && !isGenerating && (
-          <div className="flex gap-4 p-4 bg-white/5 rounded-lg border border-white/20">
-            <Button 
-              onClick={generateVoice}
-              className="bg-green-600 hover:bg-green-700 text-white border-0"
-            >
-              <Play className="w-4 h-4 mr-2" />
-              Play Again
-            </Button>
-            <Button 
-              onClick={downloadVoice}
-              className="bg-blue-600 hover:bg-blue-700 text-white border-0"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download
-            </Button>
+        {/* Audio Output Section */}
+        {hasGenerated && (
+          <div className="p-4 bg-white/5 rounded-lg border border-white/20">
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-white font-semibold">Generated Audio</Label>
+              <div className="flex items-center gap-2">
+                {isPlaying && (
+                  <div className="flex items-center gap-2 text-green-400">
+                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    <span className="text-sm">Playing...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <Button 
+                onClick={playAgain}
+                disabled={isPlaying}
+                className="bg-green-600 hover:bg-green-700 text-white border-0"
+              >
+                {isPlaying ? (
+                  <>
+                    <Volume2 className="w-4 h-4 mr-2" />
+                    Playing...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 mr-2" />
+                    Play Again
+                  </>
+                )}
+              </Button>
+              
+              <Button 
+                onClick={downloadVoice}
+                className="bg-blue-600 hover:bg-blue-700 text-white border-0"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download
+              </Button>
+              
+              <Button 
+                onClick={() => {
+                  setHasGenerated(false);
+                  setCurrentUtterance(null);
+                }}
+                className="bg-gray-600 hover:bg-gray-700 text-white border-0"
+              >
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Clear
+              </Button>
+            </div>
+            
+            {currentUtterance && (
+              <div className="mt-3 p-3 bg-black/20 rounded text-sm">
+                <p className="text-blue-200">
+                  <strong>Voice:</strong> {selectedVoice}
+                </p>
+                <p className="text-blue-200">
+                  <strong>Text:</strong> {currentUtterance.text.substring(0, 100)}
+                  {currentUtterance.text.length > 100 ? '...' : ''}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
