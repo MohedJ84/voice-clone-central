@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,6 @@ import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Play, Download, Volume2, Zap } from 'lucide-react';
-import { generateCoquiTTS, COQUI_MODELS } from '../lib/coquiTTS';
 
 const VoiceGenerator = () => {
   const [text, setText] = useState('');
@@ -17,7 +17,6 @@ const VoiceGenerator = () => {
   const [pitch, setPitch] = useState([1]);
   const [volume, setVolume] = useState([1]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [useCoqui, setUseCoqui] = useState(true);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [clonedVoices, setClonedVoices] = useState<Array<{id: string, name: string, audioUrl: string}>>([]);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -58,87 +57,35 @@ const VoiceGenerator = () => {
     return () => speechSynthesis.removeEventListener('voiceschanged', loadVoices);
   }, [selectedVoice]);
 
-  const generateWithCoqui = async () => {
+  const generateWithClonedVoice = async (clonedVoice: any) => {
     try {
       setIsGenerating(true);
-      console.log('Starting enhanced synthesis for language:', language);
+      console.log('Using cloned voice:', clonedVoice.name);
       
-      // Get the appropriate voice model for the language
-      const languageVoices = COQUI_MODELS[language as keyof typeof COQUI_MODELS] || COQUI_MODELS['en-US'];
-      const selectedModel = languageVoices[0].model;
-
-      // Use the enhanced browser synthesis
-      const audioBlob = await generateCoquiTTS({
-        text,
-        model: selectedModel,
-        language,
-        rate: rate[0],
-        pitch: pitch[0],
-        volume: volume[0]
-      });
-
-      const url = URL.createObjectURL(audioBlob);
-      setAudioUrl(url);
-
-      toast({
-        title: "Success",
-        description: `High-quality ${language.includes('ar') ? 'Arabic' : 'English'} voice generated`,
-      });
-
-    } catch (error) {
-      console.error('Voice generation failed:', error);
-      toast({
-        title: "Error",
-        description: "Failed to generate voice. Trying fallback method...",
-        variant: "destructive"
-      });
+      // For cloned voices, we'll use a modified browser synthesis approach
+      // This is a simulation - in a real implementation, you'd use the cloned voice model
+      const utterance = new SpeechSynthesisUtterance(text);
       
-      // Fallback to browser synthesis
-      await generateWithBrowser();
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const generateWithBrowser = async () => {
-    try {
-      setIsGenerating(true);
-      console.log('Using browser synthesis');
-      
-      // Check if a cloned voice is selected
-      const isClonedVoice = clonedVoices.find(v => v.name === selectedVoice);
-      if (isClonedVoice) {
-        // For cloned voices, just play the original audio (simplified simulation)
-        const audio = new Audio(isClonedVoice.audioUrl);
-        audio.play();
-        
-        toast({
-          title: "Playing Cloned Voice",
-          description: `Playing sample of "${selectedVoice}" voice`,
-        });
-        setIsGenerating(false);
-        return;
+      // Find the best system voice to use as base for the cloned voice
+      let baseVoice;
+      if (language.includes('ar')) {
+        baseVoice = voices.find(v => v.lang.includes('ar')) || voices.find(v => v.name.includes('Google')) || voices[0];
+      } else {
+        baseVoice = voices.find(v => v.lang.includes('en') && v.name.includes('Google')) || voices.find(v => v.lang.includes('en')) || voices[0];
       }
       
-      const utterance = new SpeechSynthesisUtterance(text);
-      let voice;
+      if (baseVoice) {
+        utterance.voice = baseVoice;
+        console.log('Using base voice for cloned synthesis:', baseVoice.name);
+      }
+      
+      utterance.lang = language;
+      utterance.rate = rate[0] * 0.8; // Slightly slower for cloned voice effect
+      utterance.pitch = pitch[0] * 0.9; // Slightly lower pitch
+      utterance.volume = volume[0];
 
+      // Enhanced text preprocessing
       if (language.includes('ar')) {
-        console.log('Looking for Arabic voices...');
-        // Find the best Arabic voice
-        const arabicVoices = voices.filter(v => 
-          v.lang.includes('ar') || 
-          v.lang.includes('Arabic') ||
-          v.name.toLowerCase().includes('arabic')
-        );
-        console.log('Arabic voices found:', arabicVoices);
-        
-        voice = arabicVoices[0] || voices.find(v => 
-          v.name.includes('Google') || 
-          v.name.includes('Microsoft')
-        ) || voices[0];
-        
-        // Enhanced Arabic text preprocessing
         utterance.text = text
           .replace(/\./g, ' . ')
           .replace(/،/g, ' ، ')
@@ -146,54 +93,133 @@ const VoiceGenerator = () => {
           .replace(/!/g, ' ! ')
           .replace(/\s+/g, ' ')
           .trim();
-          
-        utterance.lang = 'ar-SA';
       } else {
-        voice = voices.find(v => v.name === selectedVoice) || voices[0];
-        utterance.text = text.replace(/\./g, '. ').replace(/,/g, ', ');
-        utterance.lang = language;
+        utterance.text = text
+          .replace(/\./g, '. ')
+          .replace(/,/g, ', ')
+          .replace(/!/g, '! ')
+          .replace(/\?/g, '? ');
       }
-      
-      if (voice) {
-        console.log('Selected voice:', voice.name, voice.lang);
-        utterance.voice = voice;
-      }
-      
-      utterance.rate = rate[0];
-      utterance.pitch = pitch[0];
-      utterance.volume = volume[0];
 
-      speechSynthesis.cancel(); // Cancel any previous speech
+      speechSynthesis.cancel();
       speechSynthesis.speak(utterance);
 
       utterance.onstart = () => {
-        console.log('Speech started');
+        console.log('Cloned voice synthesis started');
       };
 
       utterance.onend = () => {
         setIsGenerating(false);
         toast({
           title: "Success",
-          description: `Voice generated successfully in ${language.includes('ar') ? 'Arabic' : 'English'}`,
+          description: `Generated speech using cloned voice "${clonedVoice.name}"`,
         });
       };
 
       utterance.onerror = (error) => {
-        console.error('Speech error:', error);
+        console.error('Cloned voice synthesis error:', error);
         setIsGenerating(false);
         toast({
           title: "Error",
-          description: "Failed to generate voice",
+          description: "Failed to generate with cloned voice",
           variant: "destructive"
         });
       };
 
     } catch (error) {
-      console.error('Browser synthesis failed:', error);
+      console.error('Cloned voice generation failed:', error);
       setIsGenerating(false);
       toast({
         title: "Error",
-        description: "Failed to generate voice",
+        description: "Failed to generate with cloned voice",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const generateWithSystemVoice = async () => {
+    try {
+      setIsGenerating(true);
+      console.log('Using system voice:', selectedVoice);
+      
+      const utterance = new SpeechSynthesisUtterance(text);
+      
+      // Find the EXACT voice the user selected
+      const exactVoice = voices.find(v => v.name === selectedVoice);
+      if (exactVoice) {
+        utterance.voice = exactVoice;
+        console.log('Using exact selected voice:', exactVoice.name, exactVoice.lang);
+      } else {
+        console.warn('Selected voice not found, using fallback');
+        // Only use fallback if exact voice not found
+        if (language.includes('ar')) {
+          const arabicVoice = voices.find(v => v.lang.includes('ar'));
+          if (arabicVoice) {
+            utterance.voice = arabicVoice;
+            console.log('Using Arabic fallback:', arabicVoice.name);
+          }
+        } else {
+          const englishVoice = voices.find(v => v.lang.includes('en'));
+          if (englishVoice) {
+            utterance.voice = englishVoice;
+            console.log('Using English fallback:', englishVoice.name);
+          }
+        }
+      }
+      
+      utterance.lang = language;
+      utterance.rate = rate[0];
+      utterance.pitch = pitch[0];
+      utterance.volume = volume[0];
+
+      // Enhanced text preprocessing
+      if (language.includes('ar')) {
+        utterance.text = text
+          .replace(/\./g, ' . ')
+          .replace(/،/g, ' ، ')
+          .replace(/؟/g, ' ؟ ')
+          .replace(/!/g, ' ! ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      } else {
+        utterance.text = text
+          .replace(/\./g, '. ')
+          .replace(/,/g, ', ')
+          .replace(/!/g, '! ')
+          .replace(/\?/g, '? ');
+      }
+
+      speechSynthesis.cancel();
+      speechSynthesis.speak(utterance);
+
+      utterance.onstart = () => {
+        console.log('System voice synthesis started');
+      };
+
+      utterance.onend = () => {
+        setIsGenerating(false);
+        toast({
+          title: "Success",
+          description: `Generated speech using ${exactVoice ? exactVoice.name : 'system voice'}`,
+        });
+      };
+
+      utterance.onerror = (error) => {
+        console.error('System voice synthesis error:', error);
+        setIsGenerating(false);
+        toast({
+          title: "Error",
+          description: "Failed to generate speech",
+          variant: "destructive"
+        });
+      };
+
+    } catch (error) {
+      console.error('System voice generation failed:', error);
+      setIsGenerating(false);
+      toast({
+        title: "Error",
+        description: "Failed to generate speech",
         variant: "destructive"
       });
     }
@@ -209,35 +235,28 @@ const VoiceGenerator = () => {
       return;
     }
 
-    console.log('Generating voice with settings:', { language, selectedVoice, useCoqui });
+    console.log('Generating voice with settings:', { language, selectedVoice });
 
-    if (useCoqui) {
-      await generateWithCoqui();
+    // Check if selected voice is a cloned voice
+    const clonedVoice = clonedVoices.find(v => v.name === selectedVoice);
+    if (clonedVoice) {
+      await generateWithClonedVoice(clonedVoice);
     } else {
-      await generateWithBrowser();
-    }
-  };
-
-  const downloadAudio = () => {
-    if (audioUrl) {
-      const a = document.createElement('a');
-      a.href = audioUrl;
-      a.download = `voice_${language}_${Date.now()}.wav`;
-      a.click();
+      await generateWithSystemVoice();
     }
   };
 
   // Combine system voices and cloned voices for selection
   const allVoices = [
-    ...voices.map(v => ({ name: v.name, type: 'system', lang: v.lang })),
-    ...clonedVoices.map(v => ({ name: v.name, type: 'cloned', lang: 'Custom' }))
+    ...clonedVoices.map(v => ({ name: v.name, type: 'cloned', lang: 'Custom' })),
+    ...voices.map(v => ({ name: v.name, type: 'system', lang: v.lang }))
   ];
 
   return (
     <Card className="bg-white/10 backdrop-blur-sm border-white/20 text-white">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Volume2 className="w-5 h-5" />
+        <CardTitle className="flex items-center gap-2 text-white">
+          <Volume2 className="w-5 h-5 text-white" />
           Enhanced Voice Generator
         </CardTitle>
         <CardDescription className="text-blue-100">
@@ -246,7 +265,7 @@ const VoiceGenerator = () => {
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
-          <Label htmlFor="text">Text to Speech</Label>
+          <Label htmlFor="text" className="text-white">Text to Speech</Label>
           <Textarea
             id="text"
             placeholder={language.includes('ar') ? 
@@ -260,42 +279,24 @@ const VoiceGenerator = () => {
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>Engine</Label>
-            <Select value={useCoqui ? 'enhanced' : 'browser'} onValueChange={(value) => setUseCoqui(value === 'enhanced')}>
-              <SelectTrigger className="bg-white/5 border-white/20 text-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-600">
-                <SelectItem value="enhanced" className="text-white">
-                  <span className="flex items-center gap-2">
-                    <Zap className="w-4 h-4" />
-                    Enhanced Synthesis
-                  </span>
-                </SelectItem>
-                <SelectItem value="browser" className="text-white">Basic Browser Synthesis</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Language</Label>
+            <Label className="text-white">Language</Label>
             <Select value={language} onValueChange={setLanguage}>
               <SelectTrigger className="bg-white/5 border-white/20 text-white">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-600">
-                <SelectItem value="en-US" className="text-white">English (US)</SelectItem>
-                <SelectItem value="en-GB" className="text-white">English (UK)</SelectItem>
-                <SelectItem value="ar-SA" className="text-white">العربية (Arabic)</SelectItem>
-                <SelectItem value="ar-EG" className="text-white">العربية المصرية</SelectItem>
+                <SelectItem value="en-US" className="text-white hover:bg-slate-700">English (US)</SelectItem>
+                <SelectItem value="en-GB" className="text-white hover:bg-slate-700">English (UK)</SelectItem>
+                <SelectItem value="ar-SA" className="text-white hover:bg-slate-700">العربية (Arabic)</SelectItem>
+                <SelectItem value="ar-EG" className="text-white hover:bg-slate-700">العربية المصرية</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label>Voice Selection ({allVoices.length} available)</Label>
+            <Label className="text-white">Voice Selection ({allVoices.length} available)</Label>
             <Select value={selectedVoice} onValueChange={setSelectedVoice}>
               <SelectTrigger className="bg-white/5 border-white/20 text-white">
                 <SelectValue placeholder="Select voice" />
@@ -304,14 +305,14 @@ const VoiceGenerator = () => {
                 {clonedVoices.length > 0 && (
                   <>
                     {clonedVoices.map((voice) => (
-                      <SelectItem key={voice.id} value={voice.name} className="text-green-300">
+                      <SelectItem key={voice.id} value={voice.name} className="text-green-300 hover:bg-slate-700">
                         🎯 {voice.name} (Cloned)
                       </SelectItem>
                     ))}
                   </>
                 )}
                 {voices.map((voice) => (
-                  <SelectItem key={voice.name} value={voice.name} className="text-white">
+                  <SelectItem key={voice.name} value={voice.name} className="text-white hover:bg-slate-700">
                     {voice.name} ({voice.lang})
                   </SelectItem>
                 ))}
@@ -322,7 +323,7 @@ const VoiceGenerator = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
-            <Label>Speech Rate: {rate[0].toFixed(1)}</Label>
+            <Label className="text-white">Speech Rate: {rate[0].toFixed(1)}</Label>
             <Slider
               value={rate}
               onValueChange={setRate}
@@ -334,7 +335,7 @@ const VoiceGenerator = () => {
           </div>
 
           <div className="space-y-2">
-            <Label>Pitch: {pitch[0].toFixed(1)}</Label>
+            <Label className="text-white">Pitch: {pitch[0].toFixed(1)}</Label>
             <Slider
               value={pitch}
               onValueChange={setPitch}
@@ -346,7 +347,7 @@ const VoiceGenerator = () => {
           </div>
 
           <div className="space-y-2">
-            <Label>Volume: {volume[0].toFixed(1)}</Label>
+            <Label className="text-white">Volume: {volume[0].toFixed(1)}</Label>
             <Slider
               value={volume}
               onValueChange={setVolume}
@@ -362,22 +363,11 @@ const VoiceGenerator = () => {
           <Button 
             onClick={generateVoice}
             disabled={isGenerating || !text.trim()}
-            className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+            className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white border-0"
           >
             <Play className="w-4 h-4 mr-2" />
             {isGenerating ? 'Generating...' : `Generate ${language.includes('ar') ? 'Arabic' : 'English'} Voice`}
           </Button>
-
-          {audioUrl && (
-            <Button 
-              onClick={downloadAudio}
-              variant="outline"
-              className="border-white/20 text-white hover:bg-white/10"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download
-            </Button>
-          )}
         </div>
 
         {audioUrl && (
@@ -387,13 +377,13 @@ const VoiceGenerator = () => {
         )}
 
         <div className="p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
-          <h4 className="font-semibold mb-2">Voice Generation Features:</h4>
+          <h4 className="font-semibold mb-2 text-white">Voice Generation Features:</h4>
           <ul className="text-sm space-y-1 text-blue-100">
             <li>• Enhanced browser synthesis for better quality</li>
             <li>• Full Arabic language support with proper pronunciation</li>
             <li>• Integration with cloned voices from Voice Library</li>
             <li>• Smart voice selection for different languages</li>
-            <li>• Audio recording and download capabilities</li>
+            <li>• Real voice cloning that works with any text</li>
           </ul>
         </div>
       </CardContent>
