@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -304,9 +303,6 @@ const VoiceGenerator = () => {
               <SelectContent className="bg-slate-800 border-slate-600">
                 {clonedVoices.length > 0 && (
                   <>
-                    <SelectItem value="" disabled className="text-blue-300 font-semibold">
-                      — Cloned Voices —
-                    </SelectItem>
                     {clonedVoices.map((voice) => (
                       <SelectItem key={voice.id} value={voice.name} className="text-green-300">
                         🎯 {voice.name} (Cloned)
@@ -314,9 +310,6 @@ const VoiceGenerator = () => {
                     ))}
                   </>
                 )}
-                <SelectItem value="" disabled className="text-blue-300 font-semibold">
-                  — System Voices —
-                </SelectItem>
                 {voices.map((voice) => (
                   <SelectItem key={voice.name} value={voice.name} className="text-white">
                     {voice.name} ({voice.lang})
