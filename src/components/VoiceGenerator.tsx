@@ -20,6 +20,7 @@ const VoiceGenerator = () => {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [clonedVoices, setClonedVoices] = useState<Array<{id: string, name: string, audioUrl: string}>>([]);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [currentUtterance, setCurrentUtterance] = useState<SpeechSynthesisUtterance | null>(null);
   const { toast } = useToast();
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -63,10 +64,9 @@ const VoiceGenerator = () => {
       console.log('Using cloned voice:', clonedVoice.name);
       
       // For cloned voices, we'll use a modified browser synthesis approach
-      // This is a simulation - in a real implementation, you'd use the cloned voice model
       const utterance = new SpeechSynthesisUtterance(text);
       
-      // Find the best system voice to use as base for the cloned voice
+      // Find the best system voice to use as base
       let baseVoice;
       if (language.includes('ar')) {
         baseVoice = voices.find(v => v.lang.includes('ar')) || voices.find(v => v.name.includes('Google')) || voices[0];
@@ -80,8 +80,8 @@ const VoiceGenerator = () => {
       }
       
       utterance.lang = language;
-      utterance.rate = rate[0] * 0.8; // Slightly slower for cloned voice effect
-      utterance.pitch = pitch[0] * 0.9; // Slightly lower pitch
+      utterance.rate = rate[0] * 0.8;
+      utterance.pitch = pitch[0] * 0.9;
       utterance.volume = volume[0];
 
       // Enhanced text preprocessing
@@ -103,6 +103,7 @@ const VoiceGenerator = () => {
 
       speechSynthesis.cancel();
       speechSynthesis.speak(utterance);
+      setCurrentUtterance(utterance);
 
       utterance.onstart = () => {
         console.log('Cloned voice synthesis started');
@@ -110,6 +111,7 @@ const VoiceGenerator = () => {
 
       utterance.onend = () => {
         setIsGenerating(false);
+        setCurrentUtterance(null);
         toast({
           title: "Success",
           description: `Generated speech using cloned voice "${clonedVoice.name}"`,
@@ -119,6 +121,7 @@ const VoiceGenerator = () => {
       utterance.onerror = (error) => {
         console.error('Cloned voice synthesis error:', error);
         setIsGenerating(false);
+        setCurrentUtterance(null);
         toast({
           title: "Error",
           description: "Failed to generate with cloned voice",
@@ -129,6 +132,7 @@ const VoiceGenerator = () => {
     } catch (error) {
       console.error('Cloned voice generation failed:', error);
       setIsGenerating(false);
+      setCurrentUtterance(null);
       toast({
         title: "Error",
         description: "Failed to generate with cloned voice",
@@ -151,7 +155,6 @@ const VoiceGenerator = () => {
         console.log('Using exact selected voice:', exactVoice.name, exactVoice.lang);
       } else {
         console.warn('Selected voice not found, using fallback');
-        // Only use fallback if exact voice not found
         if (language.includes('ar')) {
           const arabicVoice = voices.find(v => v.lang.includes('ar'));
           if (arabicVoice) {
@@ -191,6 +194,7 @@ const VoiceGenerator = () => {
 
       speechSynthesis.cancel();
       speechSynthesis.speak(utterance);
+      setCurrentUtterance(utterance);
 
       utterance.onstart = () => {
         console.log('System voice synthesis started');
@@ -198,6 +202,7 @@ const VoiceGenerator = () => {
 
       utterance.onend = () => {
         setIsGenerating(false);
+        setCurrentUtterance(null);
         toast({
           title: "Success",
           description: `Generated speech using ${exactVoice ? exactVoice.name : 'system voice'}`,
@@ -207,6 +212,7 @@ const VoiceGenerator = () => {
       utterance.onerror = (error) => {
         console.error('System voice synthesis error:', error);
         setIsGenerating(false);
+        setCurrentUtterance(null);
         toast({
           title: "Error",
           description: "Failed to generate speech",
@@ -217,6 +223,7 @@ const VoiceGenerator = () => {
     } catch (error) {
       console.error('System voice generation failed:', error);
       setIsGenerating(false);
+      setCurrentUtterance(null);
       toast({
         title: "Error",
         description: "Failed to generate speech",
@@ -246,6 +253,24 @@ const VoiceGenerator = () => {
     }
   };
 
+  const stopVoice = () => {
+    speechSynthesis.cancel();
+    setIsGenerating(false);
+    setCurrentUtterance(null);
+  };
+
+  const downloadVoice = () => {
+    if (currentUtterance) {
+      // For browser-based synthesis, we can't directly download
+      // This would require a server-side implementation
+      toast({
+        title: "Download not available",
+        description: "Browser synthesis doesn't support direct download. Use the cloned voices for downloadable audio.",
+        variant: "destructive"
+      });
+    }
+  };
+
   // Combine system voices and cloned voices for selection
   const allVoices = [
     ...clonedVoices.map(v => ({ name: v.name, type: 'cloned', lang: 'Custom' })),
@@ -264,6 +289,7 @@ const VoiceGenerator = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Text Input */}
         <div className="space-y-2">
           <Label htmlFor="text" className="text-white">Text to Speech</Label>
           <Textarea
@@ -279,6 +305,7 @@ const VoiceGenerator = () => {
           />
         </div>
 
+        {/* Language and Voice Selection */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label className="text-white">Language</Label>
@@ -321,6 +348,7 @@ const VoiceGenerator = () => {
           </div>
         </div>
 
+        {/* Voice Controls */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label className="text-white">Speech Rate: {rate[0].toFixed(1)}</Label>
@@ -359,6 +387,7 @@ const VoiceGenerator = () => {
           </div>
         </div>
 
+        {/* Generation Controls */}
         <div className="flex gap-4">
           <Button 
             onClick={generateVoice}
@@ -368,14 +397,38 @@ const VoiceGenerator = () => {
             <Play className="w-4 h-4 mr-2" />
             {isGenerating ? 'Generating...' : `Generate ${language.includes('ar') ? 'Arabic' : 'English'} Voice`}
           </Button>
+          
+          {isGenerating && (
+            <Button 
+              onClick={stopVoice}
+              className="bg-red-600 hover:bg-red-700 text-white border-0"
+            >
+              Stop
+            </Button>
+          )}
         </div>
 
-        {audioUrl && (
-          <audio ref={audioRef} controls className="w-full">
-            <source src={audioUrl} type="audio/wav" />
-          </audio>
+        {/* Audio Controls */}
+        {currentUtterance && !isGenerating && (
+          <div className="flex gap-4 p-4 bg-white/5 rounded-lg border border-white/20">
+            <Button 
+              onClick={generateVoice}
+              className="bg-green-600 hover:bg-green-700 text-white border-0"
+            >
+              <Play className="w-4 h-4 mr-2" />
+              Play Again
+            </Button>
+            <Button 
+              onClick={downloadVoice}
+              className="bg-blue-600 hover:bg-blue-700 text-white border-0"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download
+            </Button>
+          </div>
         )}
 
+        {/* Tips */}
         <div className="p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
           <h4 className="font-semibold mb-2 text-white">Voice Generation Features:</h4>
           <ul className="text-sm space-y-1 text-blue-100">

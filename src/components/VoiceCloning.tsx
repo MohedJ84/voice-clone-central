@@ -3,6 +3,7 @@ import React, { useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Mic, Save, Play, FileAudio } from 'lucide-react';
 
@@ -13,6 +14,8 @@ const VoiceCloning = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [clonedVoices, setClonedVoices] = useState<Array<{id: string, name: string, audioUrl: string}>>([]);
   const [audioSource, setAudioSource] = useState<'record' | 'upload'>('record');
+  const [isCloning, setIsCloning] = useState(false);
+  const [cloningProgress, setCloningProgress] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -128,6 +131,20 @@ const VoiceCloning = () => {
     }
 
     try {
+      setIsCloning(true);
+      setCloningProgress(0);
+
+      // Simulate cloning progress
+      const progressInterval = setInterval(() => {
+        setCloningProgress((prev) => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + Math.random() * 15;
+        });
+      }, 200);
+
       // Convert file to blob if needed
       let blob: Blob;
       if (uploadedFile) {
@@ -135,6 +152,9 @@ const VoiceCloning = () => {
       } else {
         blob = audioBlob!;
       }
+
+      // Simulate processing time
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       const audioUrl = URL.createObjectURL(blob);
       const newVoice = {
@@ -151,20 +171,28 @@ const VoiceCloning = () => {
       voices.push(newVoice);
       localStorage.setItem('voiceLibrary', JSON.stringify(voices));
 
-      setClonedVoices(prev => [...prev, newVoice]);
-      setVoiceName('');
-      setAudioBlob(null);
-      setUploadedFile(null);
+      setCloningProgress(100);
+      
+      setTimeout(() => {
+        setClonedVoices(prev => [...prev, newVoice]);
+        setVoiceName('');
+        setAudioBlob(null);
+        setUploadedFile(null);
+        setIsCloning(false);
+        setCloningProgress(0);
 
-      toast({
-        title: "Voice Cloned Successfully",
-        description: `"${voiceName}" has been added to your voice library and is ready to use for text generation`
-      });
+        toast({
+          title: "Voice Cloned Successfully",
+          description: `"${voiceName}" has been added to your voice library and is ready to use for text generation`
+        });
 
-      // Trigger a page refresh to update voice lists
-      window.dispatchEvent(new Event('voiceLibraryUpdated'));
+        // Trigger a page refresh to update voice lists
+        window.dispatchEvent(new Event('voiceLibraryUpdated'));
+      }, 500);
 
     } catch (error) {
+      setIsCloning(false);
+      setCloningProgress(0);
       toast({
         title: "Error",
         description: "Failed to save voice clone",
@@ -212,109 +240,132 @@ const VoiceCloning = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="voiceName" className="text-white">Voice Clone Name</Label>
+        {/* Voice Name Input */}
+        <div className="space-y-2">
+          <Label htmlFor="voiceName" className="text-white">Voice Clone Name</Label>
+          <input
+            id="voiceName"
+            type="text"
+            placeholder="Enter a name for this voice clone..."
+            value={voiceName}
+            onChange={(e) => setVoiceName(e.target.value)}
+            className="w-full px-3 py-2 bg-white/5 border border-white/20 rounded-md text-white placeholder:text-blue-200"
+            disabled={isCloning}
+          />
+        </div>
+
+        {/* Audio Source Selection */}
+        <div className="space-y-3">
+          <Label className="text-white">Audio Source</Label>
+          <div className="flex gap-2">
+            <Button
+              variant={audioSource === 'record' ? 'default' : 'outline'}
+              onClick={() => setAudioSource('record')}
+              disabled={isCloning}
+              className={audioSource === 'record' ? 'bg-purple-600 hover:bg-purple-700 text-white border-0' : 'border-white/20 text-white hover:bg-white/10 bg-transparent'}
+            >
+              <Mic className="w-4 h-4 mr-2" />
+              Record
+            </Button>
+            <Button
+              variant={audioSource === 'upload' ? 'default' : 'outline'}
+              onClick={() => setAudioSource('upload')}
+              disabled={isCloning}
+              className={audioSource === 'upload' ? 'bg-purple-600 hover:bg-purple-700 text-white border-0' : 'border-white/20 text-white hover:bg-white/10 bg-transparent'}
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Upload File
+            </Button>
+          </div>
+        </div>
+
+        {/* Recording/Upload Section */}
+        {audioSource === 'record' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Button
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={isCloning}
+              className={`${isRecording ? 'bg-red-600 hover:bg-red-700 text-white border-0' : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white border-0'}`}
+            >
+              <Mic className="w-4 h-4 mr-2" />
+              {isRecording ? 'Stop Recording' : 'Start Recording'}
+            </Button>
+
+            <Button
+              onClick={saveVoiceClone}
+              disabled={!audioBlob || !voiceName.trim() || isCloning}
+              className="bg-green-600 hover:bg-green-700 text-white border-0 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {isCloning ? 'Cloning...' : 'Save Voice Clone'}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
             <input
-              id="voiceName"
-              type="text"
-              placeholder="Enter a name for this voice clone..."
-              value={voiceName}
-              onChange={(e) => setVoiceName(e.target.value)}
-              className="w-full px-3 py-2 bg-white/5 border border-white/20 rounded-md text-white placeholder:text-blue-200"
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept="audio/*"
+              className="hidden"
+              disabled={isCloning}
             />
-          </div>
-
-          <div className="space-y-3">
-            <Label className="text-white">Audio Source</Label>
-            <div className="flex gap-2">
-              <Button
-                variant={audioSource === 'record' ? 'default' : 'outline'}
-                onClick={() => setAudioSource('record')}
-                className={audioSource === 'record' ? 'bg-purple-600 hover:bg-purple-700 text-white border-0' : 'border-white/20 text-white hover:bg-white/10 bg-transparent'}
-              >
-                <Mic className="w-4 h-4 mr-2" />
-                Record
-              </Button>
-              <Button
-                variant={audioSource === 'upload' ? 'default' : 'outline'}
-                onClick={() => setAudioSource('upload')}
-                className={audioSource === 'upload' ? 'bg-purple-600 hover:bg-purple-700 text-white border-0' : 'border-white/20 text-white hover:bg-white/10 bg-transparent'}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Upload File
-              </Button>
-            </div>
-          </div>
-
-          {audioSource === 'record' ? (
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Button
-                onClick={isRecording ? stopRecording : startRecording}
-                className={`${isRecording ? 'bg-red-600 hover:bg-red-700 text-white border-0' : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white border-0'}`}
+                onClick={triggerFileUpload}
+                disabled={isCloning}
+                className="border-white/20 text-white hover:bg-white/10 bg-transparent"
               >
-                <Mic className="w-4 h-4 mr-2" />
-                {isRecording ? 'Stop Recording' : 'Start Recording'}
+                <FileAudio className="w-4 h-4 mr-2" />
+                {uploadedFile ? 'Change File' : 'Select Audio File'}
               </Button>
 
               <Button
                 onClick={saveVoiceClone}
-                disabled={!audioBlob || !voiceName.trim()}
-                className="border-white/20 text-white hover:bg-white/10 bg-transparent disabled:opacity-50 disabled:pointer-events-none"
+                disabled={!uploadedFile || !voiceName.trim() || isCloning}
+                className="bg-green-600 hover:bg-green-700 text-white border-0 disabled:opacity-50 disabled:pointer-events-none"
               >
                 <Save className="w-4 h-4 mr-2" />
-                Save Voice Clone
+                {isCloning ? 'Cloning...' : 'Save Voice Clone'}
               </Button>
             </div>
-          ) : (
-            <div className="space-y-4">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept="audio/*"
-                className="hidden"
-              />
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button
-                  onClick={triggerFileUpload}
-                  className="border-white/20 text-white hover:bg-white/10 bg-transparent"
-                >
-                  <FileAudio className="w-4 h-4 mr-2" />
-                  {uploadedFile ? 'Change File' : 'Select Audio File'}
-                </Button>
 
-                <Button
-                  onClick={saveVoiceClone}
-                  disabled={!uploadedFile || !voiceName.trim()}
-                  className="border-white/20 text-white hover:bg-white/10 bg-transparent disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Voice Clone
-                </Button>
+            {uploadedFile && (
+              <div className="p-3 bg-white/5 rounded-lg border border-white/20">
+                <p className="text-sm text-blue-200">
+                  Selected: {uploadedFile.name} ({(uploadedFile.size / 1024 / 1024).toFixed(2)} MB)
+                </p>
               </div>
+            )}
+          </div>
+        )}
 
-              {uploadedFile && (
-                <div className="p-3 bg-white/5 rounded-lg border border-white/20">
-                  <p className="text-sm text-blue-200">
-                    Selected: {uploadedFile.name} ({(uploadedFile.size / 1024 / 1024).toFixed(2)} MB)
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+        {/* Cloning Progress */}
+        {isCloning && (
+          <div className="space-y-2">
+            <Label className="text-white">Cloning Progress</Label>
+            <Progress value={cloningProgress} className="w-full" />
+            <p className="text-sm text-blue-200">
+              {cloningProgress < 30 ? 'Analyzing voice patterns...' :
+               cloningProgress < 60 ? 'Processing audio features...' :
+               cloningProgress < 90 ? 'Training voice model...' :
+               'Finalizing voice clone...'}
+            </p>
+          </div>
+        )}
 
-          {(audioBlob || uploadedFile) && (
-            <div className="p-4 bg-white/5 rounded-lg border border-white/20">
-              <Label className="text-white">Voice Sample Preview</Label>
-              <audio controls className="w-full mt-2">
-                <source src={getAudioPreviewUrl()!} type={uploadedFile ? uploadedFile.type : "audio/webm"} />
-              </audio>
-            </div>
-          )}
-        </div>
+        {/* Audio Preview */}
+        {(audioBlob || uploadedFile) && !isCloning && (
+          <div className="p-4 bg-white/5 rounded-lg border border-white/20">
+            <Label className="text-white">Voice Sample Preview</Label>
+            <audio controls className="w-full mt-2">
+              <source src={getAudioPreviewUrl()!} type={uploadedFile ? uploadedFile.type : "audio/webm"} />
+            </audio>
+          </div>
+        )}
 
+        {/* Cloned Voices List */}
         {clonedVoices.length > 0 && (
           <div className="space-y-4">
             <Label className="text-lg font-semibold text-white">Your Voice Clones ({clonedVoices.length})</Label>
@@ -344,6 +395,7 @@ const VoiceCloning = () => {
           </div>
         )}
 
+        {/* Tips Section */}
         <div className="p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
           <h4 className="font-semibold mb-2 text-white">Tips for Better Voice Cloning:</h4>
           <ul className="text-sm space-y-1 text-blue-100">
